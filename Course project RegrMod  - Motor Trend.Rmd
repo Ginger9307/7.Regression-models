@@ -1,0 +1,115 @@
+---
+title: "Course Project  - Outcome difference between automatic and manual transmissions reasearch  "
+author: "Tatiana Lezhneva"
+output: 
+  pdf_document: 
+    toc_depth: 1
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Overveiw 
+There is a dataset __mtcars__ which was extracted from the _1974 Motor trend US_ magazine, comprises fuel con- sumption and 10 aspects for 32 automobiles. Questions of our research are: Is an automatic or manual transmission better for MPG; Quantify the MPG difference between automatic and manual transmissions.
+
+## 1. Exploratory data analysis
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+library(dplyr); library(ggplot2); library(car); library(cowplot);   Cars <- mtcars
+```
+Some variables in dataset ( __vs__, __am__, __cyl__, __gear__, __carb__) need to be treated like factors:
+```{r echo=TRUE}
+Cars$vs<- factor(Cars$vs, levels = c(0, 1), labels = c("V-shaped", "straight"))
+Cars$am<- factor(Cars$am, levels = c(0, 1), labels = c("automatic", "manual"))
+Cars$cyl <- factor(Cars$cyl); Cars$gear <- factor(Cars$gear); Cars$carb <- factor(Cars$carb)
+```
+The first question of our research is about better transmission type for MPG. Let's take a look on the boxplot
+```{r fig.height=1.5, fig.width=3, paged.print=TRUE}
+ggplot(Cars, aes(x = am, y = mpg, fill = am)) + geom_boxplot()
+```
+
+On the first sight cars with automatic transmission appear to be more effective with outcome then cars with manual one, that is they have a significant difference. Plots of other variables from the set are in Appendix 1. 
+
+## Statiatical Inference
+So to figure out is there a sighnificant difference between the impact of transmission type on mpg, we use t-test. Before the test will have done lets assume that all observations are independant and cars were chosen randomly.
+```{r echo=TRUE}
+t.test(subset(Cars,Cars$am == "automatic")$mpg, subset(Cars,Cars$am == "manual")$mpg)
+```
+We've got the p-value = 0.001374, which means the null hypothesis is true and there is a sighnificant difference between auto and manual transmissions.
+Another question to answer is Quantity the MPG difference between automatic and manual transmissions. 
+Looking at the relation between MPG and variables we can see a kind of linear associations so we are going to build multyvariant regression model. Let's start with full model that include all the variables (exept __gear__ because its unbalanced) 
+```{r fig.height=2, fig.width=6}
+Cars_model0 <- lm(mpg ~ .-gear, Cars)
+```
+Next step is checking variance inflation factor (VIF) for all the parameters and leaving in model only the uncorrelated ones with VIF < 2 (Applendix 2) . The model that we've got:
+```{r include=FALSE}
+vif(Cars_model0)
+Cars_model1 <- update(Cars_model0, .~.-disp); vif(Cars_model1)
+Cars_model2 <- update(Cars_model1, .~.-hp); vif(Cars_model2)
+Cars_model3 <- update(Cars_model2, .~.-wt); vif(Cars_model3)
+Cars_model4 <- update(Cars_model3, .~.-vs); vif(Cars_model4)
+Cars_model5 <- update(Cars_model4, .~.-qsec); vif(Cars_model5)
+Cars_model6 <- update(Cars_model5, .~.-drat); vif(Cars_model6)
+```
+```{r}
+Cars_model6
+```
+After using F-test(Appendix 3), which shows that __carb__ is unnesessery parameter(p=0.195), the final model
+```{r include=FALSE}
+drop1(Cars_model6, test = "F")
+```
+```{r}
+Cars_model_final <- update(Cars_model6, .~.-carb); summary(Cars_model_final)
+```
+The model describes about 98% of the variance, p-value=2.2e-16. Evaluation of residuals is valid(Appendix4).
+
+## Conclusions
+The transmission type does impact on MPG, auto transmission is better for mpg than manual one (p-value = 0.001374). In the final model there are two parameters: transmission and number of cylinders, which describe about 98% of the variance. According to this model manual transmission get 2.56 more mpg then manual one (holding number of cylenders cobstant).
+
+## Appendix 1
+```{r echo=FALSE, fig.height=3, fig.width=6}
+plotA <- ggplot(subset(Cars,am == "automatic"), aes(y = mpg))
+plotA_cyl <- plotA + geom_boxplot(aes(x = cyl)); plotA_disp <- plotA + geom_point(aes(x = disp))
+plotA_hp <- plotA + geom_point(aes(x = hp)); plotA_drat <- plotA + geom_point(aes(x = drat))
+plotA_wt <- plotA + geom_point(aes(x = wt)); plotA_qsec <- plotA + geom_point(aes(x = qsec))
+plotA_vs <- plotA + geom_boxplot(aes(x = vs)); 
+plotA_gear <- plotA + geom_boxplot(aes(x = gear)); plotA_carb <- plotA + geom_boxplot(aes(x = carb))
+plot_grid(plotA_cyl,plotA_disp,plotA_hp,plotA_drat,plotA_wt,plotA_qsec,plotA_vs,plotA_gear,plotA_carb, nrow = 3)
+```
+
+__Plot 1. MPG for Automatic Transmission__
+
+```{r echo=FALSE, fig.height=3, fig.width=6}
+plotM <- ggplot(subset(Cars,am == "manual"), aes(y = mpg))
+plotM_cyl <- plotM + geom_boxplot(aes(x = cyl)); plotM_disp <- plotM + geom_point(aes(x = disp))
+plotM_hp <- plotM + geom_point(aes(x = hp)); plotM_drat <- plotM + geom_point(aes(x = drat))
+plotM_wt <- plotM + geom_point(aes(x = wt)); plotM_qsec <- plotM + geom_point(aes(x = qsec))
+plotM_vs <- plotM + geom_boxplot(aes(x = vs)); 
+plotM_gear <- plotM + geom_boxplot(aes(x = gear)); plotM_carb <- plotM + geom_boxplot(aes(x = carb))
+plot_grid(plotM_cyl,plotM_disp,plotM_hp,plotM_drat,plotM_wt,plotM_qsec,plotM_vs,plotM_gear,plotM_carb, nrow = 3) 
+```
+
+__Plot 2. MPG for Manual Transmission__
+
+## Appendix 2
+```{r warning=FALSE}
+Cars_model1 <- update(Cars_model0, .~.-disp); vif(Cars_model1)
+Cars_model2 <- update(Cars_model1, .~.-hp); vif(Cars_model2)
+Cars_model3 <- update(Cars_model2, .~.-wt); vif(Cars_model3)
+Cars_model4 <- update(Cars_model3, .~.-vs); vif(Cars_model4)
+Cars_model5 <- update(Cars_model4, .~.-qsec); vif(Cars_model5)
+Cars_model6 <- update(Cars_model5, .~.-drat); vif(Cars_model6)
+```
+
+## Appendix 3
+```{r}
+drop1(Cars_model6, test = "F")
+```
+
+## Appendix 4
+```{r echo=FALSE}
+par(mfrow = c(2,2))
+plot(Cars_model_final)
+```
+
+
+
+

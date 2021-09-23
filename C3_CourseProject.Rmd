@@ -1,0 +1,360 @@
+---
+title: "Регрессионный анализ как способ предсказания количества доступной воды"
+author: "Tatiana Lezhneva"
+date: "06/05/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Ведение
+
+Каким образом на оценки учащихся городских (Urban) государственных (Public) школ по чтению (Reading) влияет их пол (Female) и принадлежность к этническому меньшинству (Minority)?
+
+
+Снежный покров в сельском хозяйстве имеет исключительное значение. Слой снежного покрова содержит значительные запасы влаги, обеспечивающие устойчивый урожай [1]. Например, в Калифорнии (США) снег обеспечивает до 80% воды, годной для использования, и недосаток снега может привести к катострафическим последствиям [2]. Поэтому предсказание значений объема речного стока на основе снегозапасов очень важно для своевременного принятия решений.   
+
+В этой работе с помощью регрессионного анализа проведенно исследование о возможности предсказания значений объема речного стока на основании наблюдений глубины снежного покрова в Owens Valley, California [3]. 
+
+## Материалы и методы
+Исходные данные - данные долгосрочного исследования национального образования США (US National Education Longitudinal Study, NELS) о баллах, полученных по математике (mathematics), науке (science) и чтению (reading) учениками 8-х классов в 1988 году.
+Структура исходных данных:
+```{r}
+    library(copulaData)
+    data(NELS88)
+    str(NELS88)
+    colSums(is.na(NELS88))
+```
+
+
+    Year - тип данных num - год сбора данных;
+```{r}
+N = nrow(NELS88) 
+empty <- colSums(is.na(NELS88))
+```
+
+Всего `r N` наблюдений. Количество пропущенных записей - `r empty`
+
+Для дальнейшей работы скопируем для ответа на поставленный вопрос нужные данные - Reading, Minoriry, Female - в отдельный датафрейм, предварительно отфильтровав их по принадлежности к Public и Urban.
+Кроме того, для облегчения интерпретации результатов добавим производный столбец - Gender - фактор, отражающий пол ученика.
+
+```{r}
+# Загрузка необходимых пакетов
+library(ggplot2)
+library(car)
+library(tidyr)
+library(dplyr)
+library(cowplot)
+library(knitr)
+# Выбор нужных столбцов и фильтрация данных
+raw_data <- NELS88 %>% filter(Public == 1 & Urban == 1) %>% select(Reading, Minority, Female) 
+
+data <- raw_data
+data$Gender <- factor(raw_data$Female, levels = c(0, 1), labels = c('male', 'female'))
+```
+
+Структура анализа:
+
+- построение линейной модели с дикретными предикторами;
+- проверка условий применимости модели;
+- проверка на возможность упрощение модели и, в случае успеха, проверка валидности упрощенной модели;
+- интерпретация результатов.
+
+Расчеты проведены в среде R [4, 5]. Для построения графиков использовались пакеты ggplot2 [6] и cowplot[7]. Пакет dplyr [9] использовался для пробразования данных. Отчет подготовлен с помощью пакета knitr [10].
+
+## Расчеты
+```{r}
+# Загрузка необходимых пакетов
+library(ggplot2)
+library(car)
+library(tidyr)
+library(dplyr)
+library(cowplot)
+library(knitr)
+# Выбор нужных столбцов
+raw_data <- NELS88 %>% filter(Public == 1 & Urban == 1) %>% select(Reading, Minority, Female) 
+
+data <- raw_data
+data$Gender <- factor(raw_data$Female, levels = c(0, 1), labels = c('male', 'female'))
+
+# Как выглядят данные
+plot1 <- ggplot(data, aes(x = Gender, y = Reading, color = Minority)) +
+    stat_summary()
+# Сколько наблюдений
+table1 = table(data$Gender, data$Minority)
+
+# Моделирование (параметризация эффектов)
+model <- lm(Reading ~ Gender * Minority, data, contrasts = list(Gender = "contr.sum",Minority = "contr.sum"))
+
+# Дисперсионный анализ
+Anova(model, type = "II")
+
+model1 <- lm(Reading ~ Gender + Minority, data, 
+             contrasts = list(Gender = "contr.sum", Minority = "contr.sum"))
+
+# Условия применимости
+### Остатки от предсказанных значений
+mod_diag <- fortify(model1)
+ggplot(mod_diag, aes(x = Gender, y = .stdresid, color = Minority)) +
+    geom_boxplot()
+
+### Расстояние Кука
+#### жесткий порог
+D <- 4/(nrow(data) - 3)
+ggplot(mod_diag, aes(y = .cooksd, x = 1:nrow(mod_diag)))+
+    geom_bar(stat = "identity") +
+    geom_hline(yintercept = D, color = "blue") +
+    geom_hline(yintercept = 1, color = "red")
+
+### Нормальное распределение остатков
+a <- qqPlot(mod_diag$.resid)
+xlab("Теоретические квантили") + ylab("Выборочные квантили")
+
+# Дисперсионный анализ
+Anova(model1)
+
+# Упрощение модели
+model_final <- update(model1, ~.-Minority)
+
+# Условия применимости
+### Остатки от предсказанных значений
+mod_diag_f <- fortify(model_final)
+ggplot(mod_diag_f, aes(x = Gender, y = .stdresid)) +
+    geom_boxplot()
+
+##### остатки от переменных не в модели????
+
+
+### Расстояние Кука
+#### жесткий порог
+D <- 4/(nrow(data) - 3)
+ggplot(mod_diag_f, aes(y = .cooksd, x = 1:nrow(mod_diag_f)))+
+    geom_bar(stat = "identity") +
+    geom_hline(yintercept = D, color = "blue") +
+    geom_hline(yintercept = 1, color = "red")
+
+### Нормальное распределение остатков
+a <- qqPlot(mod_diag_f$.resid)
+xlab("Теоретические квантили") + ylab("Выборочные квантили")
+
+summary(model_final)
+
+new_data <- data.frame(Gender = levels(data$Gender))
+new_data <- data.frame(new_data, predict(model_final, newdata = new_data, 
+                                         interval = "confidence"))
+
+# Итоговый график для интерпретации результатов
+ggplot(new_data, aes(y = fit, x = Gender)) +
+    geom_errorbar(aes(ymin = lwr, ymax = upr), width = 0.1) +
+    geom_point(color = "blue") +
+    ylab("Reading score")
+
+
+
+# Загрузка данных, трансформация в длинный формат: станция > site (factor), снежный покров > snowfall (num) 
+rawdata <- read_xlsx("CourseProject_water.xlsx")
+longdata <- rawdata %>% pivot_longer(cols = APMAM:OPSLAKE, names_to = "site", 
+            names_transform  = list(site = as.factor),values_to = "snowfall" )
+# Постоение диаграммы размахов
+plot1a <- ggplot(longdata, aes(x = site, y = snowfall)) + 
+    geom_boxplot() +
+    labs(title = "Диаграмма размаха переменных") + xlab("Станция") + ylab("Снежный покров (дюйм)")
+# Диаграмма Кливленда 
+plot2a <- ggplot(longdata, aes(y = 1:nrow(longdata), x = snowfall)) +
+    geom_point(size = 1, color = "darkgreen") +
+    facet_wrap(~ site) +
+    labs(title = "Диаграмма Кливленда") + xlab("Снежный покров (дюйм)") + ylab("Речной сток (акро-футы)")
+# Построение диаграммы характера взаимосвязи
+plot3a <- ggplot(longdata, aes(x = snowfall, y = BSAAM)) +
+    geom_point(size = 1, color = "darkblue") +
+    facet_wrap(~ site) +
+    labs(title = "Характер вз/связи переменных") + xlab("Снежный покров (дюйм)") + ylab("")
+# Общий плот a с тремя диаграммами
+plot_a <- plot_grid(plot1a, plot2a, plot3a, nrow = 1)
+# Моделирование
+model0 = lm(BSAAM ~ .-Year, data = rawdata)
+sum_model0 <- summary(model0)
+# Проверка на мультиколленеарность и последовательное удаление предикторов с VIF > 2
+vif1 <- vif(model0)
+model1 <- update(model0, ~.-OPSLAKE)
+vif2 <- vif(model1)
+model2 <- update(model1, ~.-APSAB)
+vif3 <- vif(model2)
+model3 <- update(model2, ~.-OPBPC)
+vif54 <- vif(model3)
+model4 <- update(model3, ~.-APMAM)
+vif5 <- vif(model4)
+sum_model4 <- summary(model4)
+f <- sum_model4$fstatistic
+
+# Проверка валидности модели: график остатков от предсказанных значений
+residuals <- fortify(model4, data = rawdata)
+res_plot <- ggplot(residuals, aes(x = .fitted, y = .stdresid)) +
+    geom_point(color = "darkblue") +
+    geom_hline(yintercept = 0) +
+    xlab("Предсказанные значения") + ylab("Стандарт. остатки")
+# Проверка валидности модели: график остатков от предикторов в модели/ не в модели
+res_plot_APSLAKE <- res_plot + aes(x = APSLAKE)
+res_plot_OPRC <- res_plot + aes(x = OPRC)
+res_plot_APMAM <- res_plot + aes(x = APMAM)
+res_plot_APSAB <- res_plot + aes(x = APSAB)
+res_plot_OPBPC <- res_plot + aes(x = OPBPC)
+res_plot_OPSLAKE <- res_plot + aes(x = OPSLAKE)
+res_plot_vars<- plot_grid(res_plot_OPRC, res_plot_APSLAKE, res_plot_APMAM, res_plot_APSAB, res_plot_OPBPC, res_plot_OPSLAKE, nrow = 1)    
+# Проверка валидности модели: расчет порогового значения и график расстояний Кука
+cook_limit_s <- 4/(nrow(rawdata) - 2)
+cook_limit_l <- 1
+res_plot_cook <- ggplot(residuals, aes(x = 1:nrow(residuals), y = .cooksd)) +
+    geom_bar(stat = "identity", fill = "darkblue") +
+    geom_hline(yintercept = cook_limit_s, color = "yellow") +
+    geom_hline(yintercept = cook_limit_l, color = "red") +
+    xlab("") + ylab("Расстояние Кука")
+# Проверка валидности модели: нормальное распределение остатков
+res_plot_norm <- ggplot(residuals, aes(sample = .resid))+
+    stat_qq(color = "darkblue") + stat_qq_line() +
+    xlab("Теоретические квантили") + ylab("Выборочные квантили")
+
+# Частный F-критерий
+model4_reduced <- drop1(model4, test = "F")
+
+# График предсказаний
+new_data_APSLAKE <- data.frame(APSLAKE = seq(min(rawdata$APSLAKE), max(rawdata$APSLAKE), length.out = 43), OPRC = mean(rawdata$OPRC))
+predict_APSLAKE <- predict(model4, new_data_APSLAKE, interval = "confidence")
+
+new_data_OPRC <- data.frame(APSLAKE = mean(rawdata$APSLAKE) , OPRC = seq(min(rawdata$OPRC), max(rawdata$OPRC), length.out = 43) )
+predict_OPRC <- predict(model4, new_data_OPRC, interval = "confidence")
+
+predicteddata <- data.frame(rawdata, new_data_APSLAKE, predict_APSLAKE, new_data_OPRC, predict_OPRC)
+
+pred_plot_APSLKE <- ggplot(predicteddata, aes(x = APSLAKE.1, y = fit)) +
+    geom_line(color = "darkblue") +
+    geom_point(aes(x = APSLAKE, y = BSAAM)) +
+    geom_ribbon(data = predicteddata, aes(ymin = lwr, ymax = upr), fill = "gray", alpha = 0.5) +
+    xlab("Снежный покров APSLAKE") + ylab("Объем речного стока(акро-фут)")
+
+pred_plot_OPRC <- ggplot(predicteddata, aes(x = OPRC.2, y = fit.1)) +
+    geom_line(color = "darkblue") +
+    geom_point(aes(x = OPRC, y = BSAAM)) +
+    geom_ribbon(data = predicteddata, aes(ymin = lwr.1, ymax = upr.1), fill = "gray", alpha = 0.5) +
+    xlab("Снежный покров OPRC") + ylab("")
+
+plotb <- plot_grid(pred_plot_APSLKE, pred_plot_OPRC, label_x = "Снежный покров (дюйм)")
+```
+
+## Результаты и обсуждения
+До начала анализа посмотрим на данные
+```{r echo=FALSE, fig.height=3, fig.width=10}
+    plot1
+```
+
+__Рис.1.__ Диаграмма разведочного анализа исходных данных
+
+
+По диаграммам разведочного анализа (Рис.1) видно, что связь между зависимой и независимым переменными линейная, выбросы данных есть, но в рамках каждой станции их немного. Это позволяет выдвинуть гипотезу, что взаимосвязь между баллами за чтение и полом учникаб а также его принадлежностью к этническому меньшинству  может быть описана с помощью линеной модели.
+
+В результате регрессионного анализа получена следующая модель: 
+
+__Y = 15944.67 - 12.77 x APMAM - 664.41 x APSAB + 2270.68 x APSLAKE + 69.70 x OPBPC + 1916.45 x OPRC + 2211.58 x OPSLAKE__
+
+Только две из шести переменных показали значимое воздействие (t-критерий < 0.05), при этом вся модель показывает довольно высокий уровень значимости F(6,36) = 73.82 p-value < 2.2e-16. Необходима проверка на мультиколленеарность предикторов. 
+
+В качестве порогового значения для фактора инфляции дисперсии (VIF) было взято значение 2. Последовательно из модели по результатам проверки были исключены переменные, отражающие результаты наблюдений на станциях OPSLAKE, APSAB, OPBPC и APMAM (в момент выбора между OPBPC и OPRC, с незначительно отличающимися VIF, в модели осталась переменная OPRC, т.к. у OPBPC есть большой выброс, который негативно скажется на устойчивости модели). Факторы инфляции дисперсии после последней итерации:
+```{r echo=FALSE}
+vif5
+```
+
+Уравнение регрессии после проверки на мультиколленеарность приняло вид:
+
+__Y = 15944.67 + 2270.68 x APSLAKE + 1916.45 x OPRC__
+
+для этой модели F(2,40) = `r sum_model4$fstatistic[1]`, p-value = < 2.2e-16, объясненная дисперсия R2.adj = `r round (sum_model4$adj.r.squared*100, digits = 0)` %  
+
+Далее в соотвествии со структурой исследования необходимо провести анализ валидности модели.
+
+__а) нормальное распределение остатков__
+
+```{r echo=FALSE, fig.height=3, fig.width=3}
+res_plot_norm
+```
+
+__Рис. 2.__ График квантиль-квантиль плот остатков 
+
+__b) гомоскедатичность остатков__
+
+```{r echo=FALSE, fig.height=3, fig.width=3}
+res_plot
+```
+
+__Рис. 3.__ График зависимости предсказанных значений от остатков
+
+На графике предсказанных значений от остатков (рис. 3) никаких паттернов не наблюдается, данные распределены довольно равномерно, 95% значений находится в пределах 2 стандартных отклонений и ни одно не выходит за 3 sd. 
+
+__с) линейность модели__
+
+```{r echo=FALSE, fig.height=2, fig.width=10}
+res_plot_vars
+```
+
+__Рис. 4.__ График зависимости остатков от переменных (в модели и не в модели)
+
+На графиках остатков от переменных (рис. 4) данные распределены равномерно, никаких явных зависимостей не наблюдается. 
+
+__d) влиятельные наблюдения__
+
+```{r echo=FALSE, fig.height=3, fig.width=3}
+res_plot_cook
+```
+
+__Рис. 5.__ График расстояний Кука
+
+На графике расстояний Кука (рис. 5) всего два значений немного превосходят т.н. "мягкий" порог, равный 4/(n-p) = `r round(cook_limit_s,2)` (желтая горизонтальная линия), и влиятельных наблюдений, превосходящих "жесткий" порог, равный 1 (красная горизонтальная линия), нет.
+
+Следующим этапом проверим модель на возможность упрощения. Рассчитанные частные F-критерии показали, что при исключении какого-либо из параметров приведет к существенному ухудшению модели:
+
+```{r echo=FALSE}
+model4_reduced
+```
+
+График предсказанных значений построим отдельно для каждого предиктора, зафиксировав второй предиктор на среднем значении (рис. 6)
+
+```{r echo=FALSE, fig.height=4, fig.width=8}
+plotb
+```
+
+__Рис. 6.__ Графики предсказанных значений для станций APSLAKE, OPRC 
+
+## Выводы
+Таким образом, между объемом речного стока и глубиной снежного покрова на двух станциях наблюдения есть значимая взаимосвязь F(2,40) = `r sum_model4$fstatistic[1]`, p-value = < 2.2e-16.
+Соотвествующее уравление линейной регрессии:
+
+__BSAAM.hat = 15944.67 + 2270.68 x APSLAKE + 1916.45 x OPRC__
+
+При увеличении предиктора APSLAKE на 1 значение отклика увеличивается на 2271, а для предиктора OPRC - на 1926. Объясненная моделью изменчивость R2.adj = `r round (sum_model4$adj.r.squared*100, digits = 0)` %, что составляет достаточно высокий показатель.
+
+В целом, можно сделать вывод, что регрессионный анализ зависимости объема речного стока от глубины снежного покрова дает неплохие результаты, и его применение целесообразно особенно в районах чувствительных к проблемам водоснабжения.
+
+## Список литературы
+
+[1] Котляков В.М. Избранные сочинения в шести книгах. Книга 2. Снежный покров и ледники Земли. М.: Наука, 2004.
+
+[2] BRIAN CLARK HOWARD, Behind California's Historic Water Restrictions: Low Snowpack. https://www-staging.nationalgeographic.com/news/2015/04/150402-california-snowpack-drought-water-science/
+
+[3] http://www.stat.ucla.edu.
+
+[4]. R Core Team. (2018). R: A language and environment for statistical computing. R Foundation for Statistical Computing, Vienna, Austria. URL http://www.R-project.org/.
+
+[5]. RStudio (2018). RStudio: Integrated development environment for R (Version 1.1.453). Boston, MA. URL http://www.rstudio.org/
+
+[6]. Wickham, H. (2016). ggplot2: elegant graphics for data analysis. Springer.
+
+[7] Claus O. Wilke (2020). cowplot: Streamlined Plot Theme and Plot  Annotations for 'ggplot2'. R package version 1.1.0.
+
+[8] Hadley Wickham and Jennifer Bryan (2019). readxl: Read Excel Files. R package version 1.3.1. https://CRAN.R-project.org/package=readxl  
+
+[9] Hadley Wickham (2020). tidyr: Tidy Messy Data. R package version 1.1.2. 
+
+[10] Yihui Xie (2015) Dynamic Documents with R and knitr. 2nd edition.  Chapman and Hall/CRC. ISBN 978-1498716963
+
+
